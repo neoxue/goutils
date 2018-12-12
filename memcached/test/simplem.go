@@ -1,17 +1,9 @@
-package memcached
+package main
 
 import (
 	"fmt"
 	"github.com/bradfitz/gomemcache/memcache"
 	"time"
-)
-
-package main
-
-import (
-"fmt"
-"github.com/bradfitz/gomemcache/memcache"
-"time"
 )
 
 func main() {
