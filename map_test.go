@@ -14,3 +14,10 @@ func TestCopyMapFirstLevel(t *testing.T) {
 	assert.NotEqual(t, nil, a["key1"])
 	assert.Equal(t, nil, b["key1"])
 }
+
+func TestMapKeys(t *testing.T) {
+	avalue := map[string]interface{}{"testkey": "testvalue", "testkey2": "simple"}
+	mapkeys := MapKeys(avalue)
+	assert.Equal(t, []string{"testkey", "testkey2"}, mapkeys)
+	assert.Equal(t, mapkeys, []string{"testkey", "testkey2"})
+}

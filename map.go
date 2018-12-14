@@ -10,3 +10,13 @@ func CopyMapFirstLevel(a map[string]interface{}) map[string]interface{} {
 	}
 	return b
 }
+
+func MapKeys(m map[string]interface{}) []string {
+	keys := make([]string, len(m))
+	i := 0
+	for k := range m {
+		keys[i] = k
+		i++
+	}
+	return keys
+}
