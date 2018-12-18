@@ -1,27 +1,12 @@
 package memcached
 
-/*
-Copyright 2011 Google Inc.
-
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
-
-     http://www.apache.org/licenses/LICENSE-2.0
-
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-*/
-
 import (
-	"github.com/bradfitz/gomemcache/memcache"
 	"hash/crc32"
 	"net"
 	"strings"
 	"sync"
+
+	"github.com/bradfitz/gomemcache/memcache"
 )
 
 // server selector
@@ -38,12 +23,16 @@ type ServerSelector interface {
 	Each(func(net.Addr) error) error
 }
 
-// ServerList is a simple ServerSelector. Its zero value is usable.
-type ServerList struct {
-	servers     []string
-	addrsstatus map[net.Addr]int
-	mu          sync.RWMutex
-	addrs       []net.Addr
+// XServerList is a simple ServerSelector. Its zero value is usable.
+// server status:
+// 0 -> available
+// 1 -> in problem
+// 2 -> dead
+type XServerList struct {
+	servers []string
+	status  map[net.Addr]int
+	mu      sync.RWMutex
+	addrs   []net.Addr
 }
 
 // staticAddr caches the Network() and String() values from any net.Addr.
@@ -61,7 +50,7 @@ func newStaticAddr(a net.Addr) net.Addr {
 func (s *staticAddr) Network() string { return s.ntw }
 func (s *staticAddr) String() string  { return s.str }
 
-// SetServers changes a ServerList's set of servers at runtime and is
+// SetServers changes a XServerList's set of servers at runtime and is
 // safe for concurrent use by multiple goroutines.
 //
 // Each server is given equal weight. A server is given more weight
@@ -69,8 +58,8 @@ func (s *staticAddr) String() string  { return s.str }
 //
 // SetServers returns an error if any of the server names fail to
 // resolve. No attempt is made to connect to the server. If any error
-// is returned, no changes are made to the ServerList.
-func (ss *ServerList) SetServers(servers ...string) error {
+// is returned, no changes are made to the XServerList.
+func (ss *XServerList) SetServers(servers ...string) error {
 	ss.servers = servers
 	naddr := make([]net.Addr, len(servers))
 	for i, server := range servers {
@@ -92,11 +81,14 @@ func (ss *ServerList) SetServers(servers ...string) error {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	ss.addrs = naddr
+	for _, addr := range ss.addrs {
+		ss.status[addr] = 0
+	}
 	return nil
 }
 
 // Each iterates over each server calling the given function
-func (ss *ServerList) Each(f func(net.Addr) error) error {
+func (ss *XServerList) Each(f func(net.Addr) error) error {
 	ss.mu.RLock()
 	defer ss.mu.RUnlock()
 	for _, a := range ss.addrs {
@@ -118,7 +110,7 @@ var keyBufPool = sync.Pool{
 }
 
 // PickServer should do those things
-func (ss *ServerList) PickServer(key string) (net.Addr, error) {
+func (ss *XServerList) PickServer(key string) (net.Addr, error) {
 	ss.mu.RLock()
 	defer ss.mu.RUnlock()
 	if len(ss.addrs) == 0 {
