@@ -1,6 +1,8 @@
 package memcached
 
 import (
+	"fmt"
+
 	"github.com/bradfitz/gomemcache/memcache"
 )
 
@@ -19,12 +21,16 @@ func NewMemcachedProxy(server ...string) *Proxy {
 }
 
 func (p *Proxy) handleError(key string, err error) {
+	fmt.Println("in handle err")
+	fmt.Println(err)
 	if err == memcache.ErrNoServers {
 		p.ss.ResolveServers()
-	}
-	if err == memcache.ErrServerError {
+	} else if err == memcache.ErrServerError {
 		seq := p.ss.computeServer(key, len(p.ss.Servers))
 		p.ss.markServerDown(p.ss.addrs[seq])
+	} else {
+		seq := p.ss.computeServer(key, len(p.ss.Servers))
+		p.ss.markServerUp(p.ss.addrs[seq])
 	}
 }
 
