@@ -7,15 +7,25 @@ import (
 //Proxy is a cache proxy
 type Proxy struct {
 	c  *memcache.Client
-	ss ServerSelector
+	ss *XServerList
 }
 
 //NewMemcachedProxy returns the proxy
 func NewMemcachedProxy(server ...string) *Proxy {
-	ss := new(XServerList)
-	ss.SetServers(server...)
+	ss := &XServerList{Times: 10, Interval: 30, Servers: server}
+	ss.ResolveServers()
 	c := memcache.NewFromSelector(ss)
 	return &Proxy{c: c, ss: ss}
+}
+
+func (p *Proxy) handleError(key string, err error) {
+	if err == memcache.ErrNoServers {
+		p.ss.ResolveServers()
+	}
+	if err == memcache.ErrServerError {
+		seq := p.ss.computeServer(key, len(p.ss.Servers))
+		p.ss.markServerDown(p.ss.addrs[seq])
+	}
 }
 
 //FlushAll proxies client.FlushAll
@@ -25,7 +35,9 @@ func (p *Proxy) FlushAll() error {
 
 //Get proxies client.Get
 func (p *Proxy) Get(key string) (item *memcache.Item, err error) {
-	return p.c.Get(key)
+	item, err = p.c.Get(key)
+	go p.handleError(key, err)
+	return
 }
 
 //Touch proxies client.Touch
@@ -34,22 +46,24 @@ func (p *Proxy) Touch(key string, seconds int32) (err error) {
 }
 
 //GetMulti proxies client.Touch
-func (p *Proxy) GetMulti(keys []string) (map[string]*memcache.Item, error) {
+func (p *Proxy) GetMulti(keys []string) (items map[string]*memcache.Item, err error) {
 	return p.c.GetMulti(keys)
 }
 
 //Set proxies client.Set
-func (p *Proxy) Set(item *memcache.Item) error {
-	return p.c.Set(item)
+func (p *Proxy) Set(item *memcache.Item) (err error) {
+	err = p.c.Set(item)
+	go p.handleError(item.Key, err)
+	return
 }
 
 //Add proxies client.Add
-func (p *Proxy) Add(item *memcache.Item) error {
+func (p *Proxy) Add(item *memcache.Item) (err error) {
 	return p.c.Add(item)
 }
 
 //Replace proxies client.Replace
-func (p *Proxy) Replace(item *memcache.Item) error {
+func (p *Proxy) Replace(item *memcache.Item) (err error) {
 	return p.c.Replace(item)
 }
 
@@ -59,7 +73,7 @@ func (p *Proxy) CompareAndSwap(item *memcache.Item) error {
 }
 
 //Delete proxies client.Delete
-func (p *Proxy) Delete(key string) error {
+func (p *Proxy) Delete(key string) (err error) {
 	return p.c.Delete(key)
 }
 

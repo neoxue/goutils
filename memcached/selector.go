@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
 )
@@ -24,15 +25,28 @@ type ServerSelector interface {
 }
 
 // XServerList is a simple ServerSelector. Its zero value is usable.
-// server status:
-// 0 -> available
-// 1 -> in problem
-// 2 -> dead
+// Servers is the hostnames or original servers(which are not unix ip addr) to be resolved
 type XServerList struct {
-	servers []string
-	status  map[net.Addr]int
-	mu      sync.RWMutex
-	addrs   []net.Addr
+	Times      int
+	Interval   int64
+	Servers    []string
+	statuses   map[net.Addr]serverstatus
+	greenaddrs []net.Addr
+	mu         sync.RWMutex
+	addrs      []net.Addr
+}
+
+// serverstatus is the status of an mc instance
+// status:
+// 0 			green
+// 1			yellow, means it failed in last 30s
+// 2			red, 	dead and start to reset servers
+// times:   	the times of retry
+// retrydate:   the next retry time
+type serverstatus struct {
+	down           int
+	times          int
+	retrydatestamp int64
 }
 
 // staticAddr caches the Network() and String() values from any net.Addr.
@@ -59,8 +73,8 @@ func (s *staticAddr) String() string  { return s.str }
 // SetServers returns an error if any of the server names fail to
 // resolve. No attempt is made to connect to the server. If any error
 // is returned, no changes are made to the XServerList.
-func (ss *XServerList) SetServers(servers ...string) error {
-	ss.servers = servers
+func (ss *XServerList) ResolveServers() error {
+	servers := ss.Servers
 	naddr := make([]net.Addr, len(servers))
 	for i, server := range servers {
 		if strings.Contains(server, "/") {
@@ -81,9 +95,8 @@ func (ss *XServerList) SetServers(servers ...string) error {
 	ss.mu.Lock()
 	defer ss.mu.Unlock()
 	ss.addrs = naddr
-	for _, addr := range ss.addrs {
-		ss.status[addr] = 0
-	}
+	ss.greenaddrs = naddr
+	ss.statuses = map[net.Addr]serverstatus{}
 	return nil
 }
 
@@ -119,10 +132,62 @@ func (ss *XServerList) PickServer(key string) (net.Addr, error) {
 	if len(ss.addrs) == 1 {
 		return ss.addrs[0], nil
 	}
+	seq := ss.computeServer(key, len(ss.Servers))
+	addr := ss.addrs[seq]
+	status, ok := ss.statuses[addr]
+	if !ok || status.down == 0 {
+		return addr, nil
+	}
+	if status.down == 1 {
+		if time.Now().Unix() > status.retrydatestamp && status.times < ss.Times {
+			status.times++
+			status.retrydatestamp += ss.Interval
+			return addr, nil
+		}
+		// return the green server
+		seq = ss.computeServer(key, len(ss.greenaddrs))
+		return ss.greenaddrs[seq], nil
+	}
+	return nil, memcache.ErrNoServers
+}
+
+// Markserver down or reset servers
+// if added, compute the greenaddrs
+func (ss *XServerList) markServerDown(addr net.Addr) {
+	if _, ok := ss.statuses[addr]; ok {
+		if ss.statuses[addr].down == 2 {
+			ss.ResolveServers()
+		} else {
+			status := ss.statuses[addr]
+			status.times++
+		}
+	} else {
+		ss.statuses[addr] = serverstatus{times: 1, retrydatestamp: time.Now().Unix() + 30, down: 1}
+		ss.regenerateGreenAddrs()
+	}
+}
+func (ss *XServerList) markServerUp(addr net.Addr) {
+	status, ok := ss.statuses[addr]
+	if ok && status.down > 0 {
+		status.down = 0
+		ss.regenerateGreenAddrs()
+	}
+}
+func (ss *XServerList) regenerateGreenAddrs() {
+	newgreenaddrs := []net.Addr{}
+	for _, addr2 := range ss.addrs {
+		if ss.statuses[addr2].down == 0 {
+			newgreenaddrs = append(newgreenaddrs, addr2)
+		}
+	}
+	ss.greenaddrs = newgreenaddrs
+}
+
+// PickServer should do those things
+func (ss *XServerList) computeServer(key string, num int) uint32 {
 	bufp := keyBufPool.Get().(*[]byte)
 	n := copy(*bufp, key)
 	cs := crc32.ChecksumIEEE((*bufp)[:n])
 	keyBufPool.Put(bufp)
-
-	return ss.addrs[cs%uint32(len(ss.addrs))], nil
+	return cs % uint32(num)
 }
