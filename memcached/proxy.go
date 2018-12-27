@@ -1,37 +1,60 @@
 package memcached
 
 import (
-	"fmt"
+	"net"
+	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
 )
 
+const DefaultInterval = 30
+const DefaultRetryTimesLimit = 10
+
 //Proxy is a cache proxy
 type Proxy struct {
 	c  *memcache.Client
-	ss *XServerList
+	Ss *XServerList
 }
 
-//NewMemcachedProxy returns the proxy
-func NewMemcachedProxy(server ...string) *Proxy {
-	ss := &XServerList{Times: 10, Interval: 30, Servers: server}
+//NewProxy returns the proxy
+func NewProxy(server ...string) *Proxy {
+	ss := &XServerList{Servers: server, TimesLimit: DefaultRetryTimesLimit, Interval: DefaultInterval}
 	ss.ResolveServers()
 	c := memcache.NewFromSelector(ss)
-	return &Proxy{c: c, ss: ss}
+	p := &Proxy{c: c, Ss: ss}
+	go p.retryfailedservers()
+	return p
+}
+func (p *Proxy) retryfailedservers() {
+	for true {
+		interval := p.Ss.Interval
+		time.Sleep(time.Duration(interval) * time.Second)
+		for addr, status := range p.Ss.statuses {
+			if status.down == 1 {
+				_, err := net.DialTimeout(addr.Network(), addr.String(), memcache.DefaultTimeout)
+				if err == nil {
+					p.Ss.markServerUp(addr)
+				} else {
+					p.Ss.markServerDown(addr)
+				}
+			}
+			if status.down == 2 {
+				p.Ss.ResolveServers()
+			}
+		}
+	}
 }
 
 func (p *Proxy) handleError(key string, err error) {
-	fmt.Println("in handle err")
-	fmt.Println(err)
-	if err == memcache.ErrNoServers {
-		p.ss.ResolveServers()
-	} else if err == memcache.ErrServerError {
-		seq := p.ss.computeServer(key, len(p.ss.Servers))
-		p.ss.markServerDown(p.ss.addrs[seq])
-	} else {
-		seq := p.ss.computeServer(key, len(p.ss.Servers))
-		p.ss.markServerUp(p.ss.addrs[seq])
+	if err == nil || err == memcache.ErrCacheMiss || err == memcache.ErrCASConflict || err == memcache.ErrNotStored || err == memcache.ErrNoStats || err == memcache.ErrMalformedKey {
+		return
 	}
+	if err == memcache.ErrNoServers {
+		p.Ss.ResolveServers()
+		return
+	}
+	seq := p.Ss.computeServer(key, len(p.Ss.Servers))
+	p.Ss.markServerDown(p.Ss.addrs[seq])
 }
 
 //FlushAll proxies client.FlushAll

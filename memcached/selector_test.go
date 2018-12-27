@@ -29,7 +29,7 @@ func BenchmarkPickServer_Single(b *testing.B) {
 
 func benchPickServer(b *testing.B, servers ...string) {
 	b.ReportAllocs()
-	var ss = XServerList{Servers: servers, Interval: 30, Times: 10}
+	var ss = XServerList{Servers: servers}
 
 	ss.ResolveServers()
 	for i := 0; i < b.N; i++ {

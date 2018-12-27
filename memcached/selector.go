@@ -5,7 +5,6 @@ import (
 	"net"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
 )
@@ -27,7 +26,7 @@ type ServerSelector interface {
 // XServerList is a simple ServerSelector. Its zero value is usable.
 // Servers is the hostnames or original servers(which are not unix ip addr) to be resolved
 type XServerList struct {
-	Times      int
+	TimesLimit int
 	Interval   int64
 	Servers    []string
 	statuses   map[net.Addr]serverstatus
@@ -42,11 +41,9 @@ type XServerList struct {
 // 1			yellow, means it failed in last 30s
 // 2			red, 	dead and start to reset servers
 // times:   	the times of retry
-// retrydate:   the next retry time
 type serverstatus struct {
-	down           int
-	times          int
-	retrydatestamp int64
+	down  int
+	times int
 }
 
 // staticAddr caches the Network() and String() values from any net.Addr.
@@ -138,18 +135,19 @@ func (ss *XServerList) PickServer(key string) (net.Addr, error) {
 	if !ok || status.down == 0 {
 		return addr, nil
 	}
-	if status.down == 1 {
-		if time.Now().Unix() > status.retrydatestamp && status.times < ss.Times {
-			status.times++
-			status.retrydatestamp += ss.Interval
-			return addr, nil
-		}
+	if status.down >= 1 {
 		// return the green server
 		seq = ss.computeServer(key, len(ss.greenaddrs))
-		return ss.greenaddrs[seq], nil
+		if len(ss.greenaddrs) > int(seq) {
+			return ss.greenaddrs[seq], nil
+		}
+		return nil, memcache.ErrNoServers
 	}
 	return nil, memcache.ErrNoServers
 }
+
+// FIXME map[string]struct does not change, so => ss.statuses[addr] = status
+// in markdown and markup
 
 // Markserver down or reset servers
 // if added, compute the greenaddrs
@@ -160,9 +158,15 @@ func (ss *XServerList) markServerDown(addr net.Addr) {
 		} else {
 			status := ss.statuses[addr]
 			status.times++
+			ss.statuses[addr] = status
+			if status.times >= ss.TimesLimit {
+				status.down = 2
+				ss.statuses[addr] = status
+				ss.ResolveServers()
+			}
 		}
 	} else {
-		ss.statuses[addr] = serverstatus{times: 1, retrydatestamp: time.Now().Unix() + 30, down: 1}
+		ss.statuses[addr] = serverstatus{times: 1, down: 1}
 		ss.regenerateGreenAddrs()
 	}
 }
@@ -170,10 +174,14 @@ func (ss *XServerList) markServerUp(addr net.Addr) {
 	status, ok := ss.statuses[addr]
 	if ok && status.down > 0 {
 		status.down = 0
+		status.times = 0
+		ss.statuses[addr] = status
 		ss.regenerateGreenAddrs()
 	}
 }
 func (ss *XServerList) regenerateGreenAddrs() {
+	ss.mu.RLock()
+	defer ss.mu.RUnlock()
 	newgreenaddrs := []net.Addr{}
 	for _, addr2 := range ss.addrs {
 		if ss.statuses[addr2].down == 0 {
