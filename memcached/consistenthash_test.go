@@ -55,7 +55,7 @@ func TestLocalhosts(t *testing.T) {
 }
 
 // to watch the connections, no problems
-func testSleep(t *testing.T) {
+func TestSleep(t *testing.T) {
 	var err error
 	p := NewProxy(testServer1, testServer2, testServer3)
 	foo := &memcache.Item{Key: "foo1", Value: []byte("fooval"), Flags: 123}
@@ -94,7 +94,7 @@ func testSleep(t *testing.T) {
 	p.Ss.ResolveServers()
 	fmt.Println(err)
 	fmt.Println("in sleep, please watch the connections")
-	time.Sleep(100 * time.Second)
+	time.Sleep(10 * time.Second)
 }
 
 func testFailureTimeout(t *testing.T) {

@@ -137,6 +137,9 @@ func (ss *XServerList) PickServer(key string) (net.Addr, error) {
 	}
 	if status.down >= 1 {
 		// return the green server
+		if len(ss.greenaddrs) < 1 {
+			return nil, memcache.ErrNoServers
+		}
 		seq = ss.computeServer(key, len(ss.greenaddrs))
 		if len(ss.greenaddrs) > int(seq) {
 			return ss.greenaddrs[seq], nil
