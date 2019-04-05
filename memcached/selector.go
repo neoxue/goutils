@@ -155,12 +155,12 @@ func (ss *XServerList) PickServer(key string) (net.Addr, error) {
 
 // Markserver down or reset servers
 // if added, compute the greenaddrs
+// when using ss.statuses[addr] twice, it could be probably changed, but the ss is the same;
 func (ss *XServerList) markServerDown(addr net.Addr) {
-	if _, ok := ss.statuses[addr]; ok {
-		if ss.statuses[addr].down == 2 {
+	if status, ok := ss.statuses[addr]; ok {
+		if status.down == 2 {
 			ss.ResolveServers()
 		} else {
-			status := ss.statuses[addr]
 			if status.down == 0 {
 				status.down = 1
 				ss.regenerateGreenAddrs()
@@ -171,11 +171,13 @@ func (ss *XServerList) markServerDown(addr net.Addr) {
 				ss.ResolveServers()
 			}
 		}
-	} else {
-		ss.statuses[addr].times = 1
-		ss.statuses[addr].down = 1
-		ss.regenerateGreenAddrs()
 	}
+	// if not ok,
+	// which means that ss is doing ResolveServers or done another ResolveServers, the old addr is not available
+	// then do nothing
+	//ss.statuses[addr].times = 1
+	//ss.statuses[addr].down = 1
+	//ss.regenerateGreenAddrs()
 }
 func (ss *XServerList) markServerUp(addr net.Addr) {
 	status, ok := ss.statuses[addr]
