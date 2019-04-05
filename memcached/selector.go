@@ -5,6 +5,7 @@ import (
 	"net"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bradfitz/gomemcache/memcache"
 )
@@ -29,7 +30,7 @@ type XServerList struct {
 	TimesLimit int
 	Interval   int64
 	Servers    []string
-	statuses   map[net.Addr]serverstatus
+	statuses   map[net.Addr]*serverstatus
 	greenaddrs []net.Addr
 	mu         sync.RWMutex
 	addrs      []net.Addr
@@ -93,7 +94,10 @@ func (ss *XServerList) ResolveServers() error {
 	defer ss.mu.Unlock()
 	ss.addrs = naddr
 	ss.greenaddrs = naddr
-	ss.statuses = map[net.Addr]serverstatus{}
+	ss.statuses = map[net.Addr]*serverstatus{}
+	for _, addr := range naddr {
+		ss.statuses[addr] = &serverstatus{times: 0, down: 0}
+	}
 	return nil
 }
 
@@ -149,9 +153,6 @@ func (ss *XServerList) PickServer(key string) (net.Addr, error) {
 	return nil, memcache.ErrNoServers
 }
 
-// FIXME map[string]struct does not change, so => ss.statuses[addr] = status
-// in markdown and markup
-
 // Markserver down or reset servers
 // if added, compute the greenaddrs
 func (ss *XServerList) markServerDown(addr net.Addr) {
@@ -160,16 +161,19 @@ func (ss *XServerList) markServerDown(addr net.Addr) {
 			ss.ResolveServers()
 		} else {
 			status := ss.statuses[addr]
+			if status.down == 0 {
+				status.down = 1
+				ss.regenerateGreenAddrs()
+			}
 			status.times++
-			ss.statuses[addr] = status
 			if status.times >= ss.TimesLimit {
 				status.down = 2
-				ss.statuses[addr] = status
 				ss.ResolveServers()
 			}
 		}
 	} else {
-		ss.statuses[addr] = serverstatus{times: 1, down: 1}
+		ss.statuses[addr].times = 1
+		ss.statuses[addr].down = 1
 		ss.regenerateGreenAddrs()
 	}
 }
@@ -178,7 +182,6 @@ func (ss *XServerList) markServerUp(addr net.Addr) {
 	if ok && status.down > 0 {
 		status.down = 0
 		status.times = 0
-		ss.statuses[addr] = status
 		ss.regenerateGreenAddrs()
 	}
 }
@@ -201,4 +204,25 @@ func (ss *XServerList) computeServer(key string, num int) uint32 {
 	cs := crc32.ChecksumIEEE((*bufp)[:n])
 	keyBufPool.Put(bufp)
 	return cs % uint32(num)
+}
+
+// Retry failed Servers
+func (ss *XServerList) retryFailedServers() {
+	for true {
+		interval := ss.Interval
+		time.Sleep(time.Duration(interval) * time.Second)
+		for addr, status := range ss.statuses {
+			if status.down == 1 {
+				_, err := net.DialTimeout(addr.Network(), addr.String(), memcache.DefaultTimeout)
+				if err == nil {
+					ss.markServerUp(addr)
+				} else {
+					ss.markServerDown(addr)
+				}
+			}
+			if status.down == 2 {
+				ss.ResolveServers()
+			}
+		}
+	}
 }

@@ -1,15 +1,13 @@
 package memcached
 
 import (
-	"net"
-	"time"
-
 	"github.com/bradfitz/gomemcache/memcache"
 )
 
 const DefaultInterval = 30
 const DefaultRetryTimesLimit = 10
 
+//memcached proxy is a proxy, which simply use hash consistent algorithm to query memcached;
 //Proxy is a cache proxy
 type Proxy struct {
 	c  *memcache.Client
@@ -26,23 +24,7 @@ func NewProxy(server ...string) *Proxy {
 	return p
 }
 func (p *Proxy) retryfailedservers() {
-	for true {
-		interval := p.Ss.Interval
-		time.Sleep(time.Duration(interval) * time.Second)
-		for addr, status := range p.Ss.statuses {
-			if status.down == 1 {
-				_, err := net.DialTimeout(addr.Network(), addr.String(), memcache.DefaultTimeout)
-				if err == nil {
-					p.Ss.markServerUp(addr)
-				} else {
-					p.Ss.markServerDown(addr)
-				}
-			}
-			if status.down == 2 {
-				p.Ss.ResolveServers()
-			}
-		}
-	}
+	p.Ss.retryFailedServers()
 }
 
 func (p *Proxy) handleError(key string, err error) {
