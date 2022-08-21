@@ -118,7 +118,7 @@ func testFailureTimeout(t *testing.T) {
 	assert.Equal(t, 3, len(p.Ss.greenaddrs))
 	foo = &memcache.Item{Key: "foo1", Value: []byte("fooval"), Flags: 123}
 	err = p.Set(foo)
-	assert.Equal(t, "memcache: connect timeout to 10.0.0.1:11212", err.Error())
+	assert.Contains(t, err.Error(), "memcache: connect timeout to")
 	time.Sleep(100 * time.Millisecond)
 	// test move to another ins
 	assert.Equal(t, 2, len(p.Ss.greenaddrs))
