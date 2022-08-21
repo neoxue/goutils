@@ -1,4 +1,4 @@
-package goutils
+package commons
 
 /*
 CopyMapFirstLevel returns a new map which copys the first level keys

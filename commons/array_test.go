@@ -1,4 +1,4 @@
-package goutils
+package commons
 
 import (
 	"github.com/stretchr/testify/assert"
