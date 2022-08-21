@@ -24,27 +24,29 @@ import (
 
 type Rerrors struct {
 	data      interface{}
-	errorType string
+	errorType ErrorType
 	cause     error
 	code      string
 }
 
+type ErrorType int8
+
 const (
-	ErrorTypeConfig      = "errorTypeConfig"
-	ErrorTypeSys         = "errorTypeSys"
-	ErrorTypeRuntime     = "errorTypeRuntime"
-	ErrorTypeInternalRes = "errorTypeInternalRes"
-	ErrorTypeExternalRes = "errorTypeExternalRes"
-	ErrorTypeUnexpected  = "errorTypeUnexpected"
-	ErrorTypeCustom      = "errorTypeCustom"
-	ErrorTypeOther       = "errorTypeOther"
+	ErrorTypeConfig ErrorType = iota
+	ErrorTypeSys
+	ErrorTypeRuntime
+	ErrorTypeInternalRes
+	ErrorTypeExternalRes
+	ErrorTypeUnexpected
+	ErrorTypeCustom
+	ErrorTypeOther
 )
 
-func NewErrors(msg string, errorType string, code string) *Rerrors {
-	return NewErrorsWithData(msg, errorType, code, nil)
+func NewErrors(msg string, code string) *Rerrors {
+	return NewErrorsWithData(msg, ErrorTypeRuntime, code, nil)
 }
 
-func NewErrorsWithData(msg string, errorType string, code string, data interface{}) *Rerrors {
+func NewErrorsWithData(msg string, errorType ErrorType, code string, data interface{}) *Rerrors {
 	err := errors.New(msg)
 	return &Rerrors{
 		cause:     err,
@@ -54,10 +56,10 @@ func NewErrorsWithData(msg string, errorType string, code string, data interface
 	}
 }
 
-func WrapErrors(err error, msg string, errorType string, code string) *Rerrors {
-	return WrapErrorsWithData(err, msg, errorType, code, nil)
+func WrapErrors(err error, msg string, code string) *Rerrors {
+	return WrapErrorsWithData(err, msg, ErrorTypeRuntime, code, nil)
 }
-func WrapErrorsWithData(err error, msg string, errorType string, code string, data interface{}) *Rerrors {
+func WrapErrorsWithData(err error, msg string, errorType ErrorType, code string, data interface{}) *Rerrors {
 	if err == nil {
 		return nil
 	}
@@ -71,7 +73,7 @@ func WrapErrorsWithData(err error, msg string, errorType string, code string, da
 }
 
 func (err *Rerrors) Error() string {
-	return "errorType:" + err.errorType + " errMsg:" + err.cause.Error()
+	return "errorType:" + string(err.errorType) + " errMsg:" + err.cause.Error()
 }
 
 func (err *Rerrors) Cause() error {
@@ -79,7 +81,7 @@ func (err *Rerrors) Cause() error {
 }
 
 func (err *Rerrors) Type() string {
-	return err.errorType
+	return string(err.errorType)
 }
 
 func (err *Rerrors) Data() interface{} {
