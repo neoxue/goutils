@@ -73,7 +73,7 @@ func WrapErrorsWithData(err error, msg string, errorType ErrorType, code string,
 }
 
 func (err *Rerrors) Error() string {
-	return "errorType:" + string(err.errorType) + " errMsg:" + err.cause.Error()
+	return "errorType:" + toErrorTypeString(err.errorType) + " errMsg:" + err.cause.Error()
 }
 
 func (err *Rerrors) Cause() error {
@@ -81,11 +81,33 @@ func (err *Rerrors) Cause() error {
 }
 
 func (err *Rerrors) Type() string {
-	return string(err.errorType)
+	return toErrorTypeString(err.errorType)
 }
 
 func (err *Rerrors) Data() interface{} {
 	return err.data
+}
+
+func toErrorTypeString(errorType ErrorType) string {
+	switch errorType {
+	case ErrorTypeConfig:
+		return "ErrorTypeConfig"
+	case ErrorTypeSys:
+		return "ErrorTypeSys"
+	case ErrorTypeRuntime:
+		return "ErrorTypeRuntime"
+	case ErrorTypeInternalRes:
+		return "ErrorTypeInternalRes"
+	case ErrorTypeExternalRes:
+		return "ErrorTypeExternalRes"
+	case ErrorTypeUnexpected:
+		return "ErrorTypeUnexpected"
+	case ErrorTypeCustom:
+		return "ErrorTypeCustom"
+	case ErrorTypeOther:
+		return "ErrorTypeOther"
+	}
+	return ""
 }
 
 /*
